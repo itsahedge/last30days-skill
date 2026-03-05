@@ -870,8 +870,16 @@ def main():
     # --diagnose: show source availability and exit
     if args.diagnose:
         web_source = env.get_web_search_source(config)
+        # Check ChatGPT OAuth availability
+        try:
+            from lib.openclaw_auth import is_chatgpt_oauth_available
+            has_oauth = is_chatgpt_oauth_available()
+        except ImportError:
+            has_oauth = False
         diag = {
-            "openai": bool(config.get("OPENAI_API_KEY")),
+            "openai_api_key": bool(config.get("OPENAI_API_KEY")),
+            "chatgpt_oauth": has_oauth,
+            "reddit_available": bool(config.get("OPENAI_API_KEY")) or has_oauth,
             "xai": bool(config.get("XAI_API_KEY")),
             "x_source": x_source_status["source"],
             "bird_installed": x_source_status["bird_installed"],
@@ -898,7 +906,7 @@ def main():
     # Show diagnostic banner when sources are missing
     web_source = env.get_web_search_source(config)
     diag = {
-        "openai": bool(config.get("OPENAI_API_KEY")),
+        "openai": env._has_reddit_access(config),
         "xai": bool(config.get("XAI_API_KEY")),
         "x_source": x_source_status["source"],
         "bird_installed": x_source_status["bird_installed"],
@@ -1075,8 +1083,8 @@ def main():
 
     # Build source info for status footer
     source_info = {}
-    if not bool(config.get("OPENAI_API_KEY")):
-        source_info["reddit_skip_reason"] = "No OPENAI_API_KEY (add to ~/.config/last30days/.env)"
+    if not env._has_reddit_access(config):
+        source_info["reddit_skip_reason"] = "No OPENAI_API_KEY or ChatGPT OAuth (add key to ~/.config/last30days/.env or log in via OpenClaw)"
     if not x_source:
         if x_source_status["bird_installed"]:
             source_info["x_skip_reason"] = "Bird installed but not authenticated — log into x.com in browser"
