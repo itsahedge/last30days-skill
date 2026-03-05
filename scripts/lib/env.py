@@ -74,12 +74,24 @@ def config_exists() -> bool:
     return CONFIG_FILE.exists()
 
 
+def _has_reddit_access(config: Dict[str, Any]) -> bool:
+    """Check if Reddit search is available via API key OR ChatGPT OAuth."""
+    if config.get('OPENAI_API_KEY'):
+        return True
+    # Check for ChatGPT OAuth (subscription auth via OpenClaw)
+    try:
+        from .openclaw_auth import is_chatgpt_oauth_available
+        return is_chatgpt_oauth_available()
+    except ImportError:
+        return False
+
+
 def get_available_sources(config: Dict[str, Any]) -> str:
-    """Determine which sources are available based on API keys.
+    """Determine which sources are available based on API keys and OAuth.
 
     Returns: 'all', 'both', 'reddit', 'reddit-web', 'x', 'x-web', 'web', or 'none'
     """
-    has_openai = bool(config.get('OPENAI_API_KEY'))
+    has_openai = _has_reddit_access(config)
     has_xai = bool(config.get('XAI_API_KEY'))
     has_web = has_web_search_keys(config)
 
@@ -117,11 +129,11 @@ def get_web_search_source(config: Dict[str, Any]) -> Optional[str]:
 
 
 def get_missing_keys(config: Dict[str, Any]) -> str:
-    """Determine which sources are missing (accounting for Bird).
+    """Determine which sources are missing (accounting for Bird and OAuth).
 
     Returns: 'all', 'both', 'reddit', 'x', 'web', or 'none'
     """
-    has_openai = bool(config.get('OPENAI_API_KEY'))
+    has_openai = _has_reddit_access(config)
     has_xai = bool(config.get('XAI_API_KEY'))
     has_web = has_web_search_keys(config)
 

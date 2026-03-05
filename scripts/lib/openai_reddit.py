@@ -1,4 +1,11 @@
-"""OpenAI Responses API client for Reddit discovery."""
+"""OpenAI Responses API client for Reddit discovery.
+
+Supports two auth modes:
+1. ChatGPT OAuth (subscription) — uses chatgpt.com/backend-api/codex/responses
+2. OpenAI API key (legacy) — uses api.openai.com/v1/responses
+
+ChatGPT OAuth is preferred when available (uses your subscription, no API credits).
+"""
 
 import json
 import re
@@ -9,6 +16,12 @@ from . import http
 
 # Fallback models when the selected model isn't accessible (e.g., org not verified for GPT-5)
 MODEL_FALLBACK_ORDER = ["gpt-4.1", "gpt-4o", "gpt-4o-mini"]
+
+# ChatGPT OAuth endpoint (subscription auth via OpenClaw)
+CHATGPT_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+
+# Default model for ChatGPT OAuth — must be a Codex-supported model
+CHATGPT_DEFAULT_MODEL = "gpt-5.2"
 
 
 def _log_error(msg: str):
@@ -115,6 +128,36 @@ def _build_subreddit_query(topic: str) -> str:
     return f"r/{sub_name} site:reddit.com"
 
 
+def _get_auth_mode(api_key: Optional[str] = None) -> tuple:
+    """Determine auth mode: ChatGPT OAuth (subscription) or API key.
+
+    Returns:
+        Tuple of (url, headers, mode_name)
+    """
+    # Try ChatGPT OAuth first (subscription — no API credits needed)
+    from . import openclaw_auth
+    oauth_token = openclaw_auth.get_chatgpt_token()
+
+    if oauth_token:
+        headers = {
+            "Authorization": f"Bearer {oauth_token}",
+            "Content-Type": "application/json",
+        }
+        _log_info("Using ChatGPT OAuth (subscription auth)")
+        return CHATGPT_RESPONSES_URL, headers, "oauth"
+
+    # Fall back to API key
+    if api_key:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        _log_info("Using OpenAI API key")
+        return OPENAI_RESPONSES_URL, headers, "apikey"
+
+    raise http.HTTPError("No auth available: no ChatGPT OAuth token and no OPENAI_API_KEY")
+
+
 def search_reddit(
     api_key: str,
     model: str,
@@ -127,8 +170,10 @@ def search_reddit(
 ) -> Dict[str, Any]:
     """Search Reddit for relevant threads using OpenAI Responses API.
 
+    Prefers ChatGPT OAuth (subscription) over API key when available.
+
     Args:
-        api_key: OpenAI API key
+        api_key: OpenAI API key (fallback if OAuth unavailable)
         model: Model to use
         topic: Search topic
         from_date: Start date (YYYY-MM-DD) - only include threads after this
@@ -144,13 +189,16 @@ def search_reddit(
 
     min_items, max_items = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+    # Determine auth mode (OAuth preferred, API key fallback)
+    base_url, headers, auth_mode = _get_auth_mode(api_key)
 
     # Adjust timeout based on depth (generous for OpenAI web_search which can be slow)
     timeout = 90 if depth == "quick" else 120 if depth == "default" else 180
+
+    # For OAuth mode, use default model if none specified (no model selector without API key)
+    if auth_mode == "oauth" and not model:
+        model = CHATGPT_DEFAULT_MODEL
+        _log_info(f"OAuth mode: using default model {model}")
 
     # Build list of models to try: requested model first, then fallbacks
     models_to_try = [model] + [m for m in MODEL_FALLBACK_ORDER if m != model]
@@ -178,11 +226,22 @@ def search_reddit(
                 }
             ],
             "include": ["web_search_call.action.sources"],
-            "input": input_text,
         }
 
+        # Codex backend needs input as message list + instructions + store=false + stream=true
+        if auth_mode == "oauth":
+            payload["instructions"] = "You are a research assistant. Follow the user's instructions precisely and return valid JSON."
+            payload["input"] = [{"role": "user", "content": input_text}]
+            payload["store"] = False
+            payload["stream"] = True
+        else:
+            payload["input"] = input_text
+
         try:
-            return http.post(OPENAI_RESPONSES_URL, payload, headers=headers, timeout=timeout)
+            if auth_mode == "oauth":
+                return http.post_stream(base_url, payload, headers=headers, timeout=timeout)
+            else:
+                return http.post(base_url, payload, headers=headers, timeout=timeout)
         except http.HTTPError as e:
             last_error = e
             if _is_model_access_error(e):

@@ -124,6 +124,96 @@ def post(url: str, json_data: Dict[str, Any], headers: Optional[Dict[str, str]] 
     return request("POST", url, headers=headers, json_data=json_data, **kwargs)
 
 
+def post_stream(
+    url: str,
+    json_data: Dict[str, Any],
+    headers: Optional[Dict[str, str]] = None,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> Dict[str, Any]:
+    """Make a POST request and consume an SSE stream, returning the final response object.
+
+    Collects all SSE `data:` lines, reconstructs the complete response from
+    `response.completed` event or assembles output_text from delta events.
+    """
+    headers = headers or {}
+    headers.setdefault("User-Agent", USER_AGENT)
+    headers.setdefault("Content-Type", "application/json")
+    headers.setdefault("Accept", "text/event-stream")
+
+    data = json.dumps(json_data).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+
+    log(f"POST (stream) {url}")
+
+    try:
+        response = urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        body = None
+        try:
+            body = e.read().decode('utf-8')
+        except:
+            pass
+        log(f"HTTP Error {e.code}: {e.reason}")
+        if body:
+            log(f"Error body: {body[:500]}")
+        raise HTTPError(f"HTTP {e.code}: {e.reason}", e.code, body)
+
+    # Parse SSE stream
+    output_text = ""
+    completed_response = None
+
+    for raw_line in response:
+        line = raw_line.decode('utf-8', errors='replace').rstrip('\n\r')
+
+        if not line.startswith('data: '):
+            continue
+
+        payload = line[6:]  # strip 'data: '
+        if payload == '[DONE]':
+            break
+
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+
+        event_type = event.get("type", "")
+
+        # Collect output text from delta events
+        if event_type == "response.output_text.delta":
+            delta = event.get("delta", "")
+            output_text += delta
+
+        # If we get a completed response, use it directly
+        elif event_type == "response.completed":
+            completed_response = event.get("response", event)
+
+    response.close()
+
+    # Prefer the completed response object if available
+    if completed_response:
+        return completed_response
+
+    # Otherwise reconstruct a minimal response from collected text
+    if output_text:
+        return {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": output_text,
+                        }
+                    ],
+                }
+            ]
+        }
+
+    log("Stream ended with no output")
+    return {}
+
+
 def get_reddit_json(path: str, timeout: int = DEFAULT_TIMEOUT, retries: int = MAX_RETRIES) -> Dict[str, Any]:
     """Fetch Reddit thread JSON.
 
