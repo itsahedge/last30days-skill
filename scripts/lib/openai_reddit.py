@@ -220,7 +220,7 @@ def _build_payload(model: str, instructions_text: str, input_text: str, auth_sou
         "instructions": instructions_text,
         "input": input_text,
     }
-    if auth_source == env.AUTH_SOURCE_CODEX:
+    if auth_source in (env.AUTH_SOURCE_CODEX, env.AUTH_SOURCE_OPENCLAW):
         payload["input"] = [
             {
                 "type": "message",
@@ -263,16 +263,18 @@ def search_reddit(
 
     min_items, max_items = DEPTH_CONFIG.get(depth, DEPTH_CONFIG["default"])
 
-    if auth_source == env.AUTH_SOURCE_CODEX:
-        if not account_id:
+    if auth_source in (env.AUTH_SOURCE_CODEX, env.AUTH_SOURCE_OPENCLAW):
+        # Both Codex CLI and OpenClaw OAuth use the Codex streaming endpoint
+        if auth_source == env.AUTH_SOURCE_CODEX and not account_id:
             raise ValueError("Missing chatgpt_account_id for Codex auth")
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "chatgpt-account-id": account_id,
-            "OpenAI-Beta": "responses=experimental",
-            "originator": "pi",
             "Content-Type": "application/json",
         }
+        if auth_source == env.AUTH_SOURCE_CODEX:
+            headers["chatgpt-account-id"] = account_id
+            headers["OpenAI-Beta"] = "responses=experimental"
+            headers["originator"] = "pi"
         url = CODEX_RESPONSES_URL
     else:
         headers = {
@@ -297,11 +299,12 @@ def search_reddit(
         max_items=max_items,
     )
 
-    if auth_source == env.AUTH_SOURCE_CODEX:
-        # Codex auth: try model with fallback chain
+    if auth_source in (env.AUTH_SOURCE_CODEX, env.AUTH_SOURCE_OPENCLAW):
+        # Codex/OpenClaw OAuth: SSE streaming to Codex endpoint
         from . import models as models_mod
         codex_models_to_try = [model] + [m for m in models_mod.CODEX_FALLBACK_MODELS if m != model]
         instructions_text = CODEX_INSTRUCTIONS + "\n\n" + input_text
+        _log_info(f"Using {'OpenClaw OAuth' if auth_source == env.AUTH_SOURCE_OPENCLAW else 'Codex CLI'} auth")
         last_error = None
         for current_model in codex_models_to_try:
             try:
