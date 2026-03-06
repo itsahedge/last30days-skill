@@ -25,11 +25,12 @@ else:
 
 CODEX_AUTH_FILE = Path(os.environ.get("CODEX_AUTH_FILE", str(Path.home() / ".codex" / "auth.json")))
 
-AuthSource = Literal["api_key", "codex", "none"]
+AuthSource = Literal["api_key", "codex", "openclaw", "none"]
 AuthStatus = Literal["ok", "missing", "expired", "missing_account_id"]
 
 AUTH_SOURCE_API_KEY: AuthSource = "api_key"
 AUTH_SOURCE_CODEX: AuthSource = "codex"
+AUTH_SOURCE_OPENCLAW: AuthSource = "openclaw"
 AUTH_SOURCE_NONE: AuthSource = "none"
 
 AUTH_STATUS_OK: AuthStatus = "ok"
@@ -138,8 +139,38 @@ def get_codex_access_token() -> tuple[Optional[str], str]:
     return token, AUTH_STATUS_OK
 
 
+def _get_openclaw_oauth() -> Optional[OpenAIAuth]:
+    """Try to get OpenClaw OAuth token (ChatGPT subscription auth).
+
+    Returns OpenAIAuth if a valid token is found, None otherwise.
+    """
+    try:
+        from . import openclaw_auth
+        token = openclaw_auth.get_chatgpt_token()
+        if token:
+            return OpenAIAuth(
+                token=token,
+                source=AUTH_SOURCE_OPENCLAW,
+                status=AUTH_STATUS_OK,
+                account_id=None,  # Not needed for OAuth endpoint
+                codex_auth_file=str(CODEX_AUTH_FILE),
+            )
+    except ImportError:
+        pass
+    return None
+
+
 def get_openai_auth(file_env: Dict[str, str]) -> OpenAIAuth:
-    """Resolve OpenAI auth from API key or Codex login."""
+    """Resolve OpenAI auth from OpenClaw OAuth, API key, or Codex login.
+
+    Priority: OpenClaw OAuth (subscription) > API key > Codex CLI auth
+    """
+    # 1. Try OpenClaw OAuth first (uses ChatGPT subscription, no API credits)
+    openclaw = _get_openclaw_oauth()
+    if openclaw:
+        return openclaw
+
+    # 2. Try API key
     api_key = os.environ.get('OPENAI_API_KEY') or file_env.get('OPENAI_API_KEY')
     if api_key:
         return OpenAIAuth(
@@ -150,6 +181,7 @@ def get_openai_auth(file_env: Dict[str, str]) -> OpenAIAuth:
             codex_auth_file=str(CODEX_AUTH_FILE),
         )
 
+    # 3. Try Codex CLI auth
     codex_token, codex_status = get_codex_access_token()
     if codex_token:
         account_id = extract_chatgpt_account_id(codex_token)
@@ -223,22 +255,25 @@ def config_exists() -> bool:
 def is_reddit_available(config: Dict[str, Any]) -> bool:
     """Check if Reddit search is available.
 
-    Reddit can use either ScrapeCreators (preferred) or OpenAI.
+    Reddit can use ScrapeCreators (preferred), OpenClaw OAuth, or OpenAI API key.
     """
     has_sc = bool(config.get('SCRAPECREATORS_API_KEY'))
+    has_openclaw = config.get('OPENAI_AUTH_SOURCE') == AUTH_SOURCE_OPENCLAW
     has_openai = bool(config.get('OPENAI_API_KEY')) and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK
-    return has_sc or has_openai
+    return has_sc or has_openclaw or has_openai
 
 
 def get_reddit_source(config: Dict[str, Any]) -> Optional[str]:
     """Determine which Reddit backend to use.
 
-    Priority: ScrapeCreators (cheaper, faster) > OpenAI (legacy)
+    Priority: ScrapeCreators (cheaper, faster) > OpenClaw OAuth ($0) > OpenAI API key
 
     Returns: 'scrapecreators', 'openai', or None
     """
     if config.get('SCRAPECREATORS_API_KEY'):
         return 'scrapecreators'
+    if config.get('OPENAI_AUTH_SOURCE') == AUTH_SOURCE_OPENCLAW:
+        return 'openai'  # Uses OpenAI endpoint via OAuth
     if config.get('OPENAI_API_KEY') and config.get('OPENAI_AUTH_STATUS') == AUTH_STATUS_OK:
         return 'openai'
     return None
