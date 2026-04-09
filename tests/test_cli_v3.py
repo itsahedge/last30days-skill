@@ -77,6 +77,20 @@ class CliV3Tests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             cli.parse_search_flag(" , ")
 
+    def test_ensure_supported_python_rejects_old_interpreter_with_actionable_error(self):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as exc:
+                cli.ensure_supported_python((3, 9, 6))
+        self.assertEqual(1, exc.exception.code)
+        message = stderr.getvalue()
+        self.assertIn("last30days v3 requires Python 3.12+", message)
+        self.assertIn("Detected Python 3.9.6", message)
+        self.assertIn("python3.12", message)
+
+    def test_ensure_supported_python_allows_supported_interpreter(self):
+        cli.ensure_supported_python((3, 12, 0))
+
     def test_missing_sources_for_promo_prefers_reddit_x_then_web(self):
         self.assertEqual(
             "both",

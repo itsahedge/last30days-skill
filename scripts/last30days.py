@@ -14,6 +14,25 @@ import sys
 import threading
 from pathlib import Path
 
+MIN_PYTHON = (3, 12)
+
+
+def ensure_supported_python(version_info: tuple[int, int, int] | object | None = None) -> None:
+    if version_info is None:
+        version_info = sys.version_info
+    major, minor, micro = tuple(version_info[:3])
+    if (major, minor) >= MIN_PYTHON:
+        return
+    sys.stderr.write(
+        "last30days v3 requires Python 3.12+.\n"
+        f"Detected Python {major}.{minor}.{micro}.\n"
+        "Install and use python3.12 or python3.13, then rerun this command.\n"
+    )
+    raise SystemExit(1)
+
+
+ensure_supported_python()
+
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 

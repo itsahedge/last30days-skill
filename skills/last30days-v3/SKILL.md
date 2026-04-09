@@ -45,23 +45,35 @@ if [ -z "${SKILL_ROOT:-}" ]; then
   echo "ERROR: Could not find scripts/last30days.py" >&2
   exit 1
 fi
+
+for py in python3.14 python3.13 python3.12 python3; do
+  command -v "$py" >/dev/null 2>&1 || continue
+  "$py" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' || continue
+  LAST30DAYS_PYTHON="$py"
+  break
+done
+
+if [ -z "${LAST30DAYS_PYTHON:-}" ]; then
+  echo "ERROR: last30days v3 requires Python 3.12+. Install python3.12 or python3.13 and rerun." >&2
+  exit 1
+fi
 ```
 
 ## Default command
 
 ```bash
-python3 "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --emit=compact
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --emit=compact
 ```
 
 ## Useful commands
 
 ```bash
-python3 "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --emit=json
-python3 "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --quick
-python3 "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --deep
-python3 "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --search=reddit,x,grounding
-python3 "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --store
-python3 "${SKILL_ROOT}/scripts/last30days.py" --diagnose
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --emit=json
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --quick
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --deep
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --search=reddit,x,grounding
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" $ARGUMENTS --store
+"${LAST30DAYS_PYTHON}" "${SKILL_ROOT}/scripts/last30days.py" --diagnose
 ```
 
 ## Runtime expectations
