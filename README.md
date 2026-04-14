@@ -141,57 +141,51 @@ Say "eli5 on" after any research run. The synthesis rewrites in plain language. 
 
 ## Install
 
+| Surface | Install |
+|---------|---------|
+| **claude.ai** (web) | [Download `last30days.skill`](https://github.com/mvanhorn/last30days-skill/releases/latest/download/last30days.skill) and upload via Settings > Capabilities > Skills > + |
+| **Claude Code** | `/plugin marketplace add mvanhorn/last30days-skill` |
+| **OpenClaw** | `clawhub install last30days-official` |
+| **Gemini CLI** | Clone then `gemini extensions install ./last30days-skill` (see below) |
+
+### claude.ai (web)
+
+1. [Download `last30days.skill`](https://github.com/mvanhorn/last30days-skill/releases/latest/download/last30days.skill) from the latest release
+2. Go to [claude.ai Settings > Capabilities > Skills](https://claude.ai/settings/capabilities)
+3. Click the `+` button in the Skills panel and drop the file in
+
+Enable "Code execution and file creation" under Capabilities first - skills won't run without it.
+
 ### Claude Code
 
-#### Install
 ```
 /plugin marketplace add mvanhorn/last30days-skill
 ```
 
-#### Update
-```
-claude plugin update last30days@last30days-skill
-```
+Update later with `claude plugin update last30days@last30days-skill`.
 
 ### OpenClaw
+
 ```bash
 clawhub install last30days-official
 ```
 
 ### Gemini CLI
 
-Gemini CLI supports installing extensions from GitHub repositories, but as of Gemini CLI v0.9.0 there is an upstream installer bug that can fail with:
+Gemini CLI v0.9.0 has an upstream installer bug that can fail with `Configuration file not found at /tmp/gemini-extensionXXXXXX/gemini-extension.json` ([upstream issue](https://github.com/google-gemini/gemini-cli/issues/11452)). Workaround:
 
-`Configuration file not found at /tmp/gemini-extensionXXXXXX/gemini-extension.json`
+```bash
+git clone https://github.com/mvanhorn/last30days-skill
+gemini extensions install ./last30days-skill
+```
 
-even when `gemini-extension.json` exists at the repo root.
+### Manual (developer)
 
-Upstream bug:
-- https://github.com/google-gemini/gemini-cli/issues/11452
-
-Workarounds:
-1) Clone locally, then install from the local path
-   ```bash
-   git clone https://github.com/mvanhorn/last30days-skill
-   gemini extensions install ./last30days-skill
-   ```
-2) If GitHub install fails, use the OpenClaw or Claude Code install paths above.
-
-### Manual
 ```bash
 git clone https://github.com/mvanhorn/last30days-skill.git ~/.claude/skills/last30days
 ```
 
-### Upload as a Claude Skill (claude.ai)
-
-To upload `last30days` via the claude.ai skill UI, produce a `.skill` file:
-
-```bash
-bash scripts/build-skill.sh
-# -> dist/last30days.skill
-```
-
-Then drag `dist/last30days.skill` into the "Upload skill" dialog. The script honors claude.ai's 200-file upload cap and ships a single `SKILL.md` at the skill-folder root.
+Or build the claude.ai `.skill` file from source: `bash scripts/build-skill.sh` produces `dist/last30days.skill`.
 
 Reddit (with comments), Hacker News, Polymarket, and GitHub work immediately. Zero configuration. Run `/last30days` once and the setup wizard unlocks more sources in 30 seconds.
 

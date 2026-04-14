@@ -37,6 +37,9 @@ uv.lock            export-ignore
 .hermes-plugin/  export-ignore
 .claude-plugin/  export-ignore
 
+# CI workflows - repo-only, not needed at skill runtime
+.github/         export-ignore
+
 # Build config itself
 .clawhubignore  export-ignore
 .gitignore      export-ignore
