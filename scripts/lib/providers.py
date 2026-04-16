@@ -117,7 +117,7 @@ class OpenAIClient(ReasoningClient):
         response_mime_type: str | None = None,
     ) -> str:
         del tools, response_mime_type
-        if self.auth_source == env.AUTH_SOURCE_CODEX:
+        if self.auth_source in (env.AUTH_SOURCE_CODEX, env.AUTH_SOURCE_OPENCLAW):
             payload = {
                 "model": model,
                 "stream": True,

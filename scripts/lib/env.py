@@ -29,11 +29,12 @@ else:
 
 CODEX_AUTH_FILE = Path(os.environ.get("CODEX_AUTH_FILE", str(Path.home() / ".codex" / "auth.json")))
 
-AuthSource = Literal["api_key", "codex", "none"]
+AuthSource = Literal["api_key", "codex", "openclaw", "none"]
 AuthStatus = Literal["ok", "missing", "expired", "missing_account_id"]
 
 AUTH_SOURCE_API_KEY: AuthSource = "api_key"
 AUTH_SOURCE_CODEX: AuthSource = "codex"
+AUTH_SOURCE_OPENCLAW: AuthSource = "openclaw"
 AUTH_SOURCE_NONE: AuthSource = "none"
 
 AUTH_STATUS_OK: AuthStatus = "ok"
@@ -165,8 +166,44 @@ def get_codex_access_token() -> tuple[str | None, str]:
     return token, AUTH_STATUS_OK
 
 
+def _get_openclaw_oauth() -> Optional[OpenAIAuth]:
+    """Try to get OpenClaw OAuth token (ChatGPT subscription auth).
+
+    Reads tokens from OpenClaw's auth-profiles.json. OpenClaw handles
+    refresh automatically — we just read the current token from disk.
+    """
+    try:
+        from . import openclaw_auth
+        token = openclaw_auth.get_chatgpt_token()
+        if token:
+            account_id = openclaw_auth._find_oauth_profile(
+                openclaw_auth._get_state_dir()
+            )
+            aid = account_id.get("account_id") if account_id else None
+            return OpenAIAuth(
+                token=token,
+                source=AUTH_SOURCE_OPENCLAW,
+                status=AUTH_STATUS_OK,
+                account_id=aid,
+                codex_auth_file=str(CODEX_AUTH_FILE),
+            )
+    except Exception as e:
+        sys.stderr.write(f"[last30days] OpenClaw OAuth check failed: {e}\n")
+        sys.stderr.flush()
+    return None
+
+
 def get_openai_auth(file_env: dict[str, str]) -> OpenAIAuth:
-    """Resolve OpenAI auth from API key or Codex login."""
+    """Resolve OpenAI auth from OpenClaw OAuth, API key, or Codex login.
+
+    Priority: OpenClaw OAuth (subscription) > API key > Codex CLI auth
+    """
+    # 1. Try OpenClaw OAuth first (uses ChatGPT subscription, no API credits)
+    openclaw = _get_openclaw_oauth()
+    if openclaw:
+        return openclaw
+
+    # 2. Try API key
     api_key = os.environ.get('OPENAI_API_KEY') or file_env.get('OPENAI_API_KEY')
     if api_key:
         return OpenAIAuth(
@@ -177,9 +214,25 @@ def get_openai_auth(file_env: dict[str, str]) -> OpenAIAuth:
             codex_auth_file=str(CODEX_AUTH_FILE),
         )
 
-    # Codex auth (chatgpt.com backend) intentionally skipped.
-    # The endpoint is unstable and causes crashes when the token expires.
-    # Users who want OpenAI should set OPENAI_API_KEY explicitly.
+    # 3. Try Codex CLI auth
+    token, status = get_codex_access_token()
+    if token and status == AUTH_STATUS_OK:
+        account_id = extract_chatgpt_account_id(token)
+        if account_id:
+            return OpenAIAuth(
+                token=token,
+                source=AUTH_SOURCE_CODEX,
+                status=AUTH_STATUS_OK,
+                account_id=account_id,
+                codex_auth_file=str(CODEX_AUTH_FILE),
+            )
+        return OpenAIAuth(
+            token=token,
+            source=AUTH_SOURCE_CODEX,
+            status=AUTH_STATUS_MISSING_ACCOUNT_ID,
+            account_id=None,
+            codex_auth_file=str(CODEX_AUTH_FILE),
+        )
 
     return OpenAIAuth(
         token=None,
